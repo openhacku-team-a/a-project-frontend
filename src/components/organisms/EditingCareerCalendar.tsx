@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import EditingCareerEvent from "./EditingCareerEvent";
-import milestones from "@/sample-data/milestones.json";
 import { Milestone } from "../../../proto/typescript/pb_out/main";
 import EditMilestoneForm from "./EditMilestoneForm";
+import useFetchUser from "@/hooks/useFetchUser";
+import useFetchMilestone from "@/hooks/useFetchMilestone";
 
 // とりあえず100年分のカレンダーを表示
 const FULL_YEAR = 100;
@@ -15,16 +16,24 @@ type Props = {
 };
 
 const EditingCareerCalendar = ({ userId }: Props) => {
+  const { me } = useFetchUser();
+  const { create, update, del } = useFetchMilestone();
+  const [lifeEvents, setLifeEvents] = useState<Milestone[]>([]);
+
+  useEffect(() => {
+    async () => {
+      const { milestones } = await me();
+      setLifeEvents(milestones);
+    };
+  }, [me]);
+
   const array = new Array(FULL_YEAR).fill(0);
-  const [lifeEvents, setLifeEvents] = useState<Milestone[]>(
-    milestones.filter((m) => m.userId === userId)
-  );
   const [openModalMilestoneId, setOpenModalMilestoneId] = useState<
     string | null
   >(null);
   const openingModalMilestone = useMemo(
     () => lifeEvents.find((l) => l.milestoneId === openModalMilestoneId),
-    [openModalMilestoneId, lifeEvents]
+    [openModalMilestoneId, lifeEvents],
   );
   const handleEtidModal = useMemo(() => {
     return {
@@ -38,42 +47,63 @@ const EditingCareerCalendar = ({ userId }: Props) => {
     };
   }, []);
 
+  const updateLifeEventWithSlider = useCallback(
+    async (newLifeEvent: Milestone) => {
+      setLifeEvents(
+        lifeEvents.map((l) =>
+          l.milestoneId === newLifeEvent.milestoneId ? newLifeEvent : l,
+        ),
+      );
+    },
+    [lifeEvents],
+  );
+
+  const fetchUpdateMilestone = useCallback(
+    (milestoneId: string) => {
+      update({
+        milestone: lifeEvents.find((l) => l.milestoneId === milestoneId),
+      });
+    },
+    [lifeEvents, update],
+  );
+
   const updateLifeEvent = useCallback(
-    (newLifeEvent: Milestone) => {
+    async (newLifeEvent: Milestone) => {
       if (newLifeEvent.milestoneId === "") {
+        const createdMilestone = await create({ milestone: newLifeEvent });
+        const validated = createdMilestone.milestone;
+        const removedNoIdMilestone = lifeEvents.filter(
+          (l) => l.milestoneId !== "",
+        );
         setLifeEvents(
-          lifeEvents.map((n) =>
-            n.milestoneId !== ""
-              ? n
-              : {
-                  ...newLifeEvent,
-                  milestoneId: String(Math.random() * 10000),
-                }
-          )
+          validated
+            ? [...removedNoIdMilestone, validated]
+            : removedNoIdMilestone,
         );
         return;
       }
       setLifeEvents(
         lifeEvents.map((l) =>
-          l.milestoneId === newLifeEvent.milestoneId ? newLifeEvent : l
-        )
+          l.milestoneId === newLifeEvent.milestoneId ? newLifeEvent : l,
+        ),
       );
+      update({ milestone: newLifeEvent });
     },
-    [lifeEvents]
+    [lifeEvents, create, update],
   );
 
   const deleteLifeEvent = useCallback(
     (lifeEventId: string) => {
       setLifeEvents(lifeEvents.filter((l) => l.milestoneId !== lifeEventId));
     },
-    [lifeEvents]
+    [lifeEvents],
   );
 
   const addNewLifeEvent = useCallback(
     (newLifeEvent: Milestone) => {
       setLifeEvents([...lifeEvents, newLifeEvent]);
     },
-    [lifeEvents]
+    [lifeEvents],
   );
 
   const handleClickCalender = useCallback(
@@ -94,7 +124,7 @@ const EditingCareerCalendar = ({ userId }: Props) => {
         finishDate: `${newLifeEventBeginYear}-12-01`,
       });
     },
-    [userId, openModalMilestoneId, addNewLifeEvent]
+    [userId, openModalMilestoneId, addNewLifeEvent],
   );
 
   return (
@@ -137,7 +167,8 @@ const EditingCareerCalendar = ({ userId }: Props) => {
           <EditingCareerEvent
             lifeEvent={lifeEvent}
             openModalMilestoneId={openModalMilestoneId}
-            updateLifeEvent={updateLifeEvent}
+            updateLifeEvent={updateLifeEventWithSlider}
+            fetchUpdateMilestone={fetchUpdateMilestone}
             handleEtidModal={handleEtidModal}
             key={`lifeEvent-${index}`}
           />
@@ -152,7 +183,7 @@ const EditingCareerCalendar = ({ userId }: Props) => {
                   type="button"
                   onClick={() => {
                     handleEtidModal.close();
-                    deleteLifeEvent(openModalMilestoneId);
+                    del(openModalMilestoneId);
                   }}
                   className="border-[1.5px] p-3 rounded-full h-14 w-14 flex justify-center items-center hover:opacity-50"
                   title="マイルストーンを削除する"
